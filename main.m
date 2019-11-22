@@ -1,12 +1,13 @@
 close all; clear; clc; format short g;
 %% Below is an example of using the DRAMMIMO package.
+
 % Two simple linear models y1 = a * x1 + b and y2 = a * x2 + b are considered.
 % These two models share parameters a and b, such that the Maximum Entropy
 % method can be taken advantage of.
 % Two sets of ficticious data are generated using the models with Gaussian 
 % noise, i.e. y1 = a1 * x1 + b + epsilon1 and y2 = a2 * x2 + b + epsilon2.
-% A discrepancy is introduced between a1 and a2, with different magnitudes 
-% of noise, epsilon1 and epsilon2.
+% A discrepancy is introduced between a1 and a2, as well as different 
+% magnitudes of noise, epsilon1 and epsilon2.
 
 %% Load the data.
 
@@ -14,8 +15,6 @@ disp('Loading data...');
 
 inputData1 = linspace(0, 1, 101)';
 inputData2 = linspace(0, 1, 101)';
-% outputData1 = 0.8 * inputData1 .* (1 + 0.05 * randn(101, 1));
-% outputData2 = 1.2 * inputData2 .* (1 + 0.10 * randn(101, 1));
 outputData1 = 0.8 * inputData1 + 0.05 * randn(101, 1);
 outputData2 = 1.2 * inputData2 + 0.10 * randn(101, 1);
 
@@ -27,25 +26,30 @@ disp('Setting DRAMMIMO...');
 % Set the data struct.
 data.xdata = {inputData1, inputData2};
 data.ydata = {outputData1, outputData2};
+
 % Set the model struct.
 model.fun = {@getModelResponse, @getModelResponse};
 model.errFun = {@getModelResponseError, @getModelResponseError};
+
 % Set the modelParams struct.
-modelParams.names = {'a', 'b'};
-modelParams.values = {1, 0};
-modelParams.lowerLimits = {-inf, -inf};
-modelParams.upperLimits = {inf, inf};
+% .table = {name, value, lowerLimit, upperLimit}.
+modelParams.table = {{'a', 1, -inf, inf}, ...
+                     {'b', 0, -inf, inf}};
+
 modelParams.extra = {{0}, {0}};
+
 % Set the DRAMParams struct.
-% Number of iterations already done.
+% Number of iterations that are already done.
 DRAMParams.numIterationsDone = 1;
-% Number of iterations when done.
-DRAMParams.numIterationsExpected = 5000;
-% Every X number of iterations, display current estimation.
+% Number of iterations that are expected to be done.
+DRAMParams.numIterationsExpected = 10000;
+% Every X number of iterations, display the parameter values at this 
+% iteration in the command window.
 DRAMParams.numIterationsDisplay = 200;
-% Every X number of iterations, save the estimation chains. 
+% Every X number of iterations, save the estimation chains up to this 
+% iteration to a .mat file.
 DRAMParams.numIterationsSave = 1000;
-% For initial run, the previousResults struct is empty.
+% For initial run, the .previousResults struct is empty.
 DRAMParams.previousResults.prior.psi_s = [];
 DRAMParams.previousResults.prior.nu_s = [];
 DRAMParams.previousResults.chain_q = [];
@@ -62,23 +66,26 @@ DRAMParams.previousResults.chain_cov_err = [];
 disp('Running DRAMMIMO...');
 
 % Get the estimation chains.
-% The estimation chains can be obtained in multiple runs.
 % 1st run.
 [prior, chain_q, last_cov_q, chain_cov_err] = ...
     getDRAMMIMOChains(data, model, modelParams, DRAMParams);
-% 2nd run.
-% Need to set the DRAMParams struct for continuous runs.
-DRAMParams.numIterationsDone = 5000;
-DRAMParams.numIterationsExpected = 10000;
-DRAMParams.numIterationsDisplay = 200;
-DRAMParams.numIterationsSave = 1000;
-DRAMParams.previousResults.prior.psi_s = prior.psi_s;
-DRAMParams.previousResults.prior.nu_s = prior.nu_s;
-DRAMParams.previousResults.chain_q = chain_q;
-DRAMParams.previousResults.last_cov_q = last_cov_q;
-DRAMParams.previousResults.chain_cov_err = chain_cov_err;
-[prior, chain_q, last_cov_q, chain_cov_err] = ...
-    getDRAMMIMOChains(data, model, modelParams, DRAMParams);
+
+% The estimation chains can be obtained in multiple runs.
+% Uncomment the following portion of code to have a 2nd run.
+% Remember to adjust the DRAMParams struct accordingly.
+% -------------------------------------------------------------------------
+% DRAMParams.numIterationsDone = 5000;
+% DRAMParams.numIterationsExpected = 10000;
+% DRAMParams.numIterationsDisplay = 200;
+% DRAMParams.numIterationsSave = 1000;
+% DRAMParams.previousResults.prior.psi_s = prior.psi_s;
+% DRAMParams.previousResults.prior.nu_s = prior.nu_s;
+% DRAMParams.previousResults.chain_q = chain_q;
+% DRAMParams.previousResults.last_cov_q = last_cov_q;
+% DRAMParams.previousResults.chain_cov_err = chain_cov_err;
+% [prior, chain_q, last_cov_q, chain_cov_err] = ...
+%     getDRAMMIMOChains(data, model, modelParams, DRAMParams);
+% -------------------------------------------------------------------------
 
 % Get the posterior densities.
 % Assuming the second half of the chains are in steady-state.
