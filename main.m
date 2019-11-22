@@ -4,15 +4,15 @@ close all; clear; clc; format short g;
 % Two simple linear models y1 = a * x1 + b and y2 = a * x2 + b are considered.
 % These two models share parameters a and b, such that the Maximum Entropy
 % method can be taken advantage of.
-% Two sets of ficticious data are generated using the models with Gaussian 
-% noise, i.e. y1 = a1 * x1 + b + epsilon1 and y2 = a2 * x2 + b + epsilon2.
-% A discrepancy is introduced between a1 and a2, as well as different 
-% magnitudes of noise, epsilon1 and epsilon2.
 
 %% Load the data.
 
 disp('Loading data...');
 
+% Two sets of ficticious data are generated using the models with Gaussian 
+% noise, i.e. y1 = a1 * x1 + b + epsilon1 and y2 = a2 * x2 + b + epsilon2.
+% A discrepancy is introduced between a1 = 0.8 and a2 = 1.2, as well as 
+% different magnitudes of noise, epsilon1 = 0.05 and epsilon2 = 0.10.
 inputData1 = linspace(0, 1, 101)';
 inputData2 = linspace(0, 1, 101)';
 outputData1 = 0.8 * inputData1 + 0.05 * randn(101, 1);
@@ -22,20 +22,30 @@ outputData2 = 1.2 * inputData2 + 0.10 * randn(101, 1);
 
 disp('Setting DRAMMIMO...');
 
-% This example has two data sets.
 % Set the data struct.
+% Add however many sets of data here. Just make sure .xdata and .ydata
+% have the same length.
+% This example has two data sets.
+% .xdata contains the input data.
 data.xdata = {inputData1, inputData2};
+% .ydata contains the output data.
 data.ydata = {outputData1, outputData2};
 
 % Set the model struct.
+% Add however many number of models here. Just make sure the number matches 
+% the number of data sets.
+% This example has two models.
+% .fun contains the functions that can generate model predictions.
 model.fun = {@getModelResponse, @getModelResponse};
+% .errFun contains the functions that compare model predictions with data.
 model.errFun = {@getModelResponseError, @getModelResponseError};
 
 % Set the modelParams struct.
-% .table = {name, value, lowerLimit, upperLimit}.
+% .table = {parameter name, initial value, lower limit, upper limit}.
 modelParams.table = {{'a', 1, -inf, inf}, ...
                      {'b', 0, -inf, inf}};
-
+% .extra can pass extra parameter values that are not being estimated to 
+% each model. Empty cells if not necessary.
 modelParams.extra = {{0}, {0}};
 
 % Set the DRAMParams struct.
@@ -47,7 +57,7 @@ DRAMParams.numIterationsExpected = 10000;
 % iteration in the command window.
 DRAMParams.numIterationsDisplay = 200;
 % Every X number of iterations, save the estimation chains up to this 
-% iteration to a .mat file.
+% iteration to a .mat file in current folder.
 DRAMParams.numIterationsSave = 1000;
 % For initial run, the .previousResults struct is empty.
 DRAMParams.previousResults.prior.psi_s = [];
@@ -66,7 +76,6 @@ DRAMParams.previousResults.chain_cov_err = [];
 disp('Running DRAMMIMO...');
 
 % Get the estimation chains.
-% 1st run.
 [prior, chain_q, last_cov_q, chain_cov_err] = ...
     getDRAMMIMOChains(data, model, modelParams, DRAMParams);
 
@@ -88,12 +97,13 @@ disp('Running DRAMMIMO...');
 % -------------------------------------------------------------------------
 
 % Get the posterior densities.
-% Assuming the second half of the chains are in steady-state.
+% Assume the second half of the chains are in steady-state, but this 
+% number is not necessarily to be true.
 num = round(size(chain_q,1)/2)+1;
 [vals,probs] = getDRAMMIMODensities(chain_q(num:end, :));
 
 % Get the credible and prediction intervals.
-% 500 is the rule of thumb number.
+% 500 is the rule of thumb number, and this number is suggested to be fixed.
 nSample = 500;
 [credLims,predLims] = ...
     getDRAMMIMOIntervals(data, model, modelParams, ...
