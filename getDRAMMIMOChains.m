@@ -1,6 +1,6 @@
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % By: Wei Gao (wg14@my.fsu.edu)
-% Last Modified: 11/20/2019
+% Last Modified: 11/22/2019
 % Desciption:
 % 1. Based on the code from Dr. Marko Laine 
 %    (http://helios.fmi.fi/~lainema/mcmc/).
@@ -19,10 +19,14 @@
 % V03: The code was rearranged to have three major components for both 
 %      MATLAB and Python versions: getDRAMMIMOChains(), 
 %      getDRAMMIMODensities(), and getDRAMMIMOIntervals().
-% V04: An output "prior" was added to getDRAMMIMOChains(), containing 
-%      parameters for inverse-wishart sampling.  
-%      Parameters for displaying and saving results were added to DRAMParams.
-%      Some minor tweaks.
+% V04a: An output "prior" was added to getDRAMMIMOChains(), containing 
+%       parameters for inverse-wishart sampling.  
+%       Parameters for displaying and saving results were added to 
+%       DRAMParams.
+%       Some minor tweaks.
+% V04b: Changed the structure of modelParams and made corresponding 
+%       adjustments.
+%       Added a bunch of comments.
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 % data: cell array, size = 1 * N. 
 %       Each cell is a vector, size = n * 1.
@@ -32,10 +36,8 @@
 %        .fun, cell array, size = 1 * N. Each cell is a function handle.
 %        .errFun, cell array, size = 1 * N. Each cell is a function handle.
 % modelParams: struct.
-%              .names, cell array, size = 1 * p. Each cell is a string.
-%              .values, cell array, size = 1 * p. Each cell is a scalar.
-%              .lowerLimits, cell array, size = 1 * p. Each cell is a scalar.
-%              .upperLimits, cell array, size = 1 * p. Each cell is a scalar.
+%              .table, cell array, size = 1 * p. Each cell is a cell array,
+%              size = 1 * 4, {name, value, lowerLimit, upperLimit}.
 %              .extra, cell array, size = 1 * p. Each cell is a cell array.
 %              p = number of parameters to be estimated.
 % DRAMParams: struct.
@@ -67,19 +69,31 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
     % Number of data sets.
     N = length(data.xdata);
     % Number of data within each set.             
-    n = size(data.xdata{1},1);           
+    n = size(data.xdata{1}, 1);           
     % Number of model parameters for estimation.
-    p = length(modelParams.values);          
+    p = length(modelParams.table);          
     % Number of estimation iterations already done.
     Mo = DRAMParams.numIterationsDone;       
     % Number of estimation iterations to be done in total.  
     M = DRAMParams.numIterationsExpected;
     
+    % Redistribute information in the parameter table for easier manipulation.
+    modelParamsNames = cell(1, p);
+    modelParamsValues = cell(1, p);
+    modelParamsLowerLimits = cell(1, p);
+    modelParamsUpperLimits = cell(1, p);
+    for i = 1 : 1 : p
+        modelParamsNames{i} = modelParams.table{i}{1};
+        modelParamsValues{i} = modelParams.table{i}{2};
+        modelParamsLowerLimits{i} = modelParams.table{i}{3};
+        modelParamsUpperLimits{i} = modelParams.table{i}{4};
+    end
+    
     % Best model parameter estimation.
     if Mo==1
-        q = [modelParams.values{:}]';
+        q = [modelParamsValues{:}]';
     else
-        q = DRAMParams.previousResults.chain_q(end,:)';
+        q = DRAMParams.previousResults.chain_q(end, :)';
     end
     % Old model parameter estimation.
     q0 = zeros(size(q));
@@ -89,36 +103,36 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
     q2 = zeros(size(q));
     
     % Model prediction errors caused by q.
-    err = zeros(n,N);                       
-    for i=1:1:N
-        err(:,i) = model.errFun{i}(q,data.xdata{i},data.ydata{i},modelParams.extra{i});   
+    err = zeros(n, N);                       
+    for i=1 : 1 : N
+        err(:, i) = model.errFun{i}(q, data.xdata{i}, data.ydata{i}, modelParams.extra{i});   
     end
     % Model prediction errors caused by q0.
-    err0 = zeros(n,N);                      
+    err0 = zeros(n, N);                      
     % Model prediction errors caused by q1.
-    err1 = zeros(n,N);                      
+    err1 = zeros(n, N);                      
     % Model prediction errors caused by q2.
-    err2 = zeros(n,N);                      
+    err2 = zeros(n, N);                      
     
     % Initialize the covariance matrix of model parameter estimations and its inverse.
     if Mo==1
-        cov_q = diag((q~=0).*(0.05*q).^2+(q==0).*1.0);
+        cov_q = diag((q ~= 0) .* (0.05 * q).^2 + (q == 0) .* 1.0);
     else
         cov_q = DRAMParams.previousResults.last_cov_q;
     end
-    cov_q_inv = cov_q\eye(size(cov_q));
+    cov_q_inv = cov_q \ eye(size(cov_q));
     
     % Initialize the covariance matrix of model prediction errors and its inverse.
     if Mo==1
-        cov_err = err'*err;
+        cov_err = err' * err;
     else
-        cov_err = DRAMParams.previousResults.chain_cov_err(:,:,end);
+        cov_err = DRAMParams.previousResults.chain_cov_err(:, :, end);
     end
-    cov_err_inv = cov_err\eye(size(cov_err));
+    cov_err_inv = cov_err \ eye(size(cov_err));
     
     % Parameters for sampling random covariance matrix of model prediction errors from inverse-wishart distribution.
     if isempty(DRAMParams.previousResults.prior.psi_s)
-        psi_s = zeros(N,N);
+        psi_s = zeros(N, N);
         nu_s = 0;
     else
         psi_s = DRAMParams.previousResults.prior.psi_s;
@@ -135,12 +149,12 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
     % Adaptive interval.
     ko = 100;
     % Adaptive scale.
-    sp = 2.38/sqrt(p);
+    sp = 2.38 / sqrt(p);
     % Current mean parameter estimations.
-    if Mo==1
+    if Mo == 1
         qBar = q;
     else
-        qBar = mean(DRAMParams.previousResults.chain_q,1)';
+        qBar = mean(DRAMParams.previousResults.chain_q, 1)';
     end
     % Current covariance matrix of parameter estimations.
     qCov = cov_q;
@@ -151,16 +165,16 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
     % 1st-stage random walk maximum step size.
     R1 = randomWalk;
     % 2nd-stage random walk maximum step size.
-    R2 = randomWalk/5;
+    R2 = randomWalk / 5;
     
     %% Initialize the chains.
     
     % The chain of model parameter estimations for posterior densities.
-    chain_q = zeros(M,p);
-    if Mo==1
-        chain_q(1,:) = q';
+    chain_q = zeros(M, p);
+    if Mo == 1
+        chain_q(1, :) = q';
     else
-        chain_q(1:Mo,:) = DRAMParams.previousResults.chain_q;
+        chain_q(1 : Mo, :) = DRAMParams.previousResults.chain_q;
     end
     
     % The chain of model parameter estimation covariances is not of interest for now.
@@ -170,11 +184,11 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
     % The chain of model prediction errors is not of interest for now.
     
     % The chain of model prediction error covariances for uncertainty propagation.
-    chain_cov_err = zeros(N,N,M);
+    chain_cov_err = zeros(N, N, M);
     if Mo==1
-        chain_cov_err(:,:,1) = cov_err;
+        chain_cov_err(:, :, 1) = cov_err;
     else
-        chain_cov_err(:,:,1:Mo) = DRAMParams.previousResults.chain_cov_err;
+        chain_cov_err(:, :, 1 : Mo) = DRAMParams.previousResults.chain_cov_err;
     end
     
     disp('Generating estimation chains...');
@@ -182,7 +196,7 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
     
     %% Generate the chains.
     
-    for k = Mo+1:1:M
+    for k = Mo+1 : 1 : M
         
         %%%%%%%% Start of Delayed Rejection %%%%%%%%
         
@@ -191,41 +205,41 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
         err0 = err;
         
         % 1st stage Random Walk.
-        q1 = q0+R1'*randn(size(q));
+        q1 = q0 + R1' * randn(size(q));
         
-        if any(q1<[modelParams.lowerLimits{:}]') || any(q1>[modelParams.upperLimits{:}]')
+        if any(q1 < [modelParamsLowerLimits{:}]') || any(q1 > [modelParamsUpperLimits{:}]')
             % If the new guess is out of the bounds ...
-            err1 = inf(n,N);
-            SS0 = trace(err0'*err0*cov_err_inv);
+            err1 = inf(n, N);
+            SS0 = trace(err0' * err0 * cov_err_inv);
             SS1 = inf;
             pi10 = 0;
-            alpha10 = min(1,pi10);
+            alpha10 = min(1, pi10);
         else
             % If the new guess is within the bounds ...
-            for i=1:1:N
-                err1(:,i) = model.errFun{i}(q1,data.xdata{i},data.ydata{i},modelParams.extra{i});
+            for i = 1 :1:N
+                err1(:, i) = model.errFun{i}(q1, data.xdata{i}, data.ydata{i}, modelParams.extra{i});
             end
             
             if any(any(isnan(err1)))
                 % If the new guess is causing the model response to be NaN ...
-                err1 = inf(n,N);
-                SS0 = trace(err0'*err0*cov_err_inv);
+                err1 = inf(n, N);
+                SS0 = trace(err0' * err0 * cov_err_inv);
                 SS1 = inf;
                 pi10 = 0;
-                alpha10 = min(1,pi10);
+                alpha10 = min(1, pi10);
             else
                 % If the new guess is okay ...
-                SS0 = trace(err0'*err0*cov_err_inv);
-                SS1 = trace(err1'*err1*cov_err_inv);
+                SS0 = trace(err0' * err0 * cov_err_inv);
+                SS1 = trace(err1' * err1 * cov_err_inv);
                 % pi(q1|q0)
-                pi10 = exp(-0.5*(SS1-SS0));	
+                pi10 = exp(-0.5 * (SS1 - SS0));	
                 % alpha(q1|q0)
-                alpha10 = min(1,pi10);	
+                alpha10 = min(1, pi10);	
             end
         end
         
         % Decide whether to accept the 1st stage new guess.
-        if alpha10>rand
+        if alpha10 > rand
             % Accept the 1st stage new guess
             
             % Record the 1st stage new guess as the best guess.
@@ -236,11 +250,11 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
             % Reject the 1st stage new guess.
             
             % 2nd stage Random Walk.
-            q2 = q0+R2'*randn(size(q));
+            q2 = q0 + R2' * randn(size(q));
             
-            if any(q2<[modelParams.lowerLimits{:}]') || any(q2>[modelParams.upperLimits{:}]')
+            if any(q2 < [modelParamsLowerLimits{:}]') || any(q2 > [modelParamsUpperLimits{:}]')
                 % If the new guess is out of the bounds ...
-                err2 = inf(n,N);
+                err2 = inf(n, N);
                 SS2 = inf;
                 pi20 = 0;
                 pi12 = 0;
@@ -248,13 +262,13 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
                 alpha210 = 0;
             else
                 % If the new guess is within the bounds ...
-                for i=1:1:N
-                    err2(:,i) = model.errFun{i}(q2,data.xdata{i},data.ydata{i},modelParams.extra{i});
+                for i = 1 : 1 : N
+                    err2(:, i) = model.errFun{i}(q2, data.xdata{i}, data.ydata{i}, modelParams.extra{i});
                 end
                 
                 if any(any(isnan(err2)))
                     % If the new guess is causing the model response to be NaN ...
-                    err2 = inf(n,N);
+                    err2 = inf(n, N);
                     SS2 = inf;
                     pi20 = 0;
                     pi12 = 0;
@@ -262,28 +276,28 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
                     alpha210 = 0;
                 else
                     % If the new guess is okay ...
-                    SS2 = trace(err2'*err2*cov_err_inv);
+                    SS2 = trace(err2' * err2 * cov_err_inv);
                     % pi(q1|v)/pi(q0|v)
-                    pi20 = exp(-0.5*(SS2-SS0));                 
+                    pi20 = exp(-0.5 * (SS2 - SS0));                 
                     % J(q1|q2)
-                    J12 = exp(-0.5*(q1-q2)'*cov_q_inv*(q1-q2)); 
+                    J12 = exp(-0.5 * (q1 - q2)' * cov_q_inv * (q1 - q2)); 
                     % J(q1|q0)
-                    J10 = exp(-0.5*(q1-q0)'*cov_q_inv*(q1-q0)); 
+                    J10 = exp(-0.5 * (q1 - q0)' * cov_q_inv * (q1 - q0)); 
                     % pi(q1|v)/pi(q0|v)
-                    pi12 = exp(-0.5*(SS1-SS2));                 
+                    pi12 = exp(-0.5 * (SS1 - SS2));                 
                     % alpha(q1|q2)
-                    alpha12 = min(1,pi12);                    
+                    alpha12 = min(1, pi12);                    
                     % alpha(q2|q0,q1)
                     if alpha12==1
                         alpha210 = 0;
                     else
-                        alpha210 = min(1,pi20*J12/J10*(1-alpha12)/(1-alpha10));    
+                        alpha210 = min(1, pi20 * J12 / J10 * (1 - alpha12) / (1 - alpha10));    
                     end
                 end
             end
             
             % Decide whether to accept the 2nd stage new guess.
-            if alpha210>rand
+            if alpha210 > rand
                 % Accept the 2nd stage new guess
                 
                 % Record the 2nd stage new guess as the best guess.
@@ -298,46 +312,46 @@ function [prior,chain_q,last_cov_q,chain_cov_err] = getDRAMMIMOChains(data,model
         %%%%%%%% Start of Adaptive Metropolis %%%%%%%%
         
         % Record the chains.
-        chain_q(k,:) = q';
+        chain_q(k, :) = q';
         last_cov_q = cov_q;
-        chain_cov_err(:,:,k) = cov_err;
+        chain_cov_err(:, :, k) = cov_err;
         
         % Update cov_err and cov_err_inv.
-        cov_err = iwishrnd(psi_s+err'*err,nu_s+n);
-        cov_err_inv = cov_err\eye(size(cov_err));
+        cov_err = iwishrnd(psi_s + err' * err,nu_s + n);
+        cov_err_inv = cov_err \ eye(size(cov_err));
         
         % Update cov_q and cov_q_inv
         % No update in the 1st round (1 round = ko steps)
-        if k==ko
+        if k == ko
             % Calculate at the end of the 1st round (ko-th step).
             % Mean model parameter estimations.
-            qBar = mean(chain_q(1:k,:),1)';
+            qBar = mean(chain_q(1:k, :), 1)';
             % Covariance of model parameter estimations.
-            qCov = cov(chain_q(1:k,:));
-        elseif k>ko
+            qCov = cov(chain_q(1:k, :));
+        elseif k > ko
             % Keep calculating after the ko-th step.
             % Mean model parameter estimations.
             qBarOld = qBar;
-            qBar = ((k-1)*qBarOld+q)/k;
+            qBar = ((k - 1) * qBarOld + q) / k;
             % Covariance of model parameter estimations.
             qCovOld = qCov;
-            qCov = (k-2)/(k-1)*qCovOld+1/(k-1)*((k-1)*(qBarOld*qBarOld')-k*(qBar*qBar')+q*q');
+            qCov = (k - 2)/(k - 1) * qCovOld + 1 / (k - 1) * ((k - 1) * (qBarOld * qBarOld') - k * (qBar * qBar') + q * q');
             
             % Update at the end of every round since the ko-th step.
-            if mod(k,ko)==0
+            if mod(k,ko) == 0
                 cov_q = qCov;
-                cov_q_inv = cov_q\eye(size(cov_q));
-                [randomWalk,flag] = chol(cov_q);
+                cov_q_inv = cov_q \ eye(size(cov_q));
+                [randomWalk, flag] = chol(cov_q);
                 % In case the cholesky decomposition failed...
                 if flag
-                    [randomWalk,flag] = chol(cov_q+1E-8*eye(size(cov_q)));
+                    [randomWalk, flag] = chol(cov_q + 1E-8 * eye(size(cov_q)));
                     disp('Parameter covariance matrix got adjusted because of singularity.');
                     if flag
                         error('Singular parameter covariance matrix. No adapt.');
                     end
                 end
-                R1 = randomWalk*sp;
-                R2 = randomWalk*sp/5;
+                R1 = randomWalk * sp;
+                R2 = randomWalk * sp / 5;
             end
         end
         
